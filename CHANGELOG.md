@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.2](https://github.com/ubiquity-os/plugin-manifest-tool/compare/v1.0.1...v1.0.2) (2026-02-23)
+
+
+### Bug Fixes
+
+* make prepare script resilient when husky is unavailable ([1893641](https://github.com/ubiquity-os/plugin-manifest-tool/commit/18936418cb917981405205f79a8496572857f667))
+
 ## [1.0.1](https://github.com/ubiquity-os/plugin-manifest-tool/compare/v1.0.0...v1.0.1) (2026-02-23)
 
 
