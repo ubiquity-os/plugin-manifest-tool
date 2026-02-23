@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/ubiquity-os/plugin-manifest-tool/compare/v1.0.0...v1.0.1) (2026-02-23)
+
+
+### Bug Fixes
+
+* removed nvmrc ([472ebd3](https://github.com/ubiquity-os/plugin-manifest-tool/commit/472ebd31e74ea8a80cd1fe6fa9ddcd22c39c470b))
+
 ## 1.0.0 (2026-02-23)
 
 
