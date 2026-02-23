@@ -23,7 +23,7 @@
     "format": "prettier --check .",
     "format:write": "prettier --write .",
     "check": "run-s lint format test",
-    "prepare": "husky",
+    "prepare": "command -v husky >/dev/null 2>&1 && husky || true",
     "sdk:build": "bun run check && bun pm pack --dry-run --quiet >/dev/null"
   },
   "devDependencies": {
