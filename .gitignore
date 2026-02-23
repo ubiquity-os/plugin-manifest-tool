@@ -1,13 +1,12 @@
 # macOS
 .DS_Store
-# node
+
+# dependencies
 node_modules
-# yarn2
-.yarn
-.pnp.cjs
-.pnp.loader.mjs
+
+# env
 .env
-static/dist
+
+# misc
 coverage
 junit.xml
-cypress/screenshots

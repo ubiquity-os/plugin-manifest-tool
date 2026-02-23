@@ -1,108 +1,62 @@
-# `@ubiquity/ts-template`
+# @ubiquity-os/plugin-manifest-tool
 
-This template repository includes support for the following:
+CLI for generating `manifest.json` files for UbiquityOS plugins.
 
-- TypeScript
-- Environment Variables
-- Conventional Commits
-- Automatic deployment to Cloudflare Pages
+It is the extracted `update-manifest` implementation used by `ubiquity-os/action-deploy-plugin`, packaged for direct use with `bun x` or local installs.
 
-## Testing
-
-### Cypress
-
-To test with Cypress Studio UI, run
-
-```shell
-bun run cy:open
-```
-
-Otherwise, to simply run the tests through the console, run
-
-```shell
-bun run cy:run
-```
-
-### Jest
-
-To start Jest tests, run
-
-```shell
-bun run test
-```
-
-## Sync any repository to latest `ts-template`
-
-A bash function that can do this for you:
+## Install
 
 ```bash
-#!/bin/bash
-# shellcheck shell=bash
+bun add -D @ubiquity-os/plugin-manifest-tool
+```
 
-get-ts-template() {
-  local branch_name
-  branch_name=$(git rev-parse --abbrev-ref HEAD)
+## Usage
 
-  # Check if we're in detached HEAD state
-  if [ "$branch_name" = "HEAD" ]; then
-    echo "Error: You are in a detached HEAD state. Please checkout a branch first."
-    return 1
-  fi
+### Local plugin development
 
-  # Create new branch for template merge
-  local merge_branch="chore/merge-${branch_name}-template"
+Run from your plugin repository root:
 
-  # Check if template remote already exists
-  if git remote | grep -q "^template$"; then
-    echo "Template remote already exists, removing it first..."
-    git remote remove template
-  fi
+```bash
+bun x @ubiquity-os/plugin-manifest-tool .
+```
 
-  echo "Adding template remote..."
-  git remote add template https://github.com/ubiquity/ts-template
+The command reads your plugin source and writes/updates `manifest.json` in the provided project directory.
 
-  echo "Fetching from template..."
-  if ! git fetch template development; then
-    echo "Error: Failed to fetch from template"
-    git remote remove template
-    return 1
-  fi
+### package.json scripts
 
-  echo "Setting up merge branch: ${merge_branch}"
-  # If branch exists, delete it
-  if git show-ref --verify --quiet "refs/heads/${merge_branch}"; then
-    echo "Branch ${merge_branch} already exists, deleting it..."
-    git checkout "$branch_name"
-    git branch -D "${merge_branch}"
-  fi
-
-  # Create and checkout new branch
-  if ! git checkout -b "${merge_branch}"; then
-    echo "Error: Failed to create merge branch"
-    git remote remove template
-    return 1
-  fi
-
-  echo "Merging template changes with strategy: theirs"
-  if ! git merge -X theirs template/development --no-commit --allow-unrelated-histories; then
-    echo "Error: Merge failed"
-    git merge --abort
-    git checkout "$branch_name"
-    git branch -D "${merge_branch}"
-    git remote remove template
-    return 1
-  fi
-
-  echo "Staging all changes for review..."
-  git add .
-
-  echo "Success! All template changes have been merged and staged."
-  echo "You can now review the changes in VSCode."
-  echo "To apply the changes: git commit -m 'chore: merge template updates'"
-  echo "To undo: git reset --hard HEAD"
-  echo "To abort completely: git checkout $branch_name && git branch -D $merge_branch"
-
-  # Cleanup
-  git remote remove template
+```json
+{
+  "scripts": {
+    "prepare:manifest": "bun x @ubiquity-os/plugin-manifest-tool .",
+    "prebuild": "bun run prepare:manifest && <your-existing-prebuild>",
+    "predev": "bun run prepare:manifest && <your-existing-predev>"
+  }
 }
+```
+
+### CI / GitHub Actions
+
+```yaml
+- uses: oven-sh/setup-bun@v2
+- run: bun x @ubiquity-os/plugin-manifest-tool .
+```
+
+## CI mode environment variables
+
+The CLI supports two modes:
+
+- Local mode: pass a project root argument (for example `.`).
+- CI mode: when no positional argument is passed, it reads:
+  - `MANIFEST_PATH`
+  - `GITHUB_WORKSPACE`
+  - `GITHUB_REPOSITORY`
+  - `GITHUB_REF_NAME`
+
+This preserves compatibility with existing `action-deploy-plugin` flows.
+
+## Development
+
+```bash
+bun install
+bun run check
 ```
