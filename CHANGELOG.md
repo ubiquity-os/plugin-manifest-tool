@@ -10,4 +10,5 @@
 
 ### Bug Fixes
 
+* set release-please release type to node ([8f5b471](https://github.com/ubiquity-os/plugin-manifest-tool/commit/8f5b471cbf183b3a70be49d8127290ef101a0e97))
 * target release-please workflow to main ([7b6dbe0](https://github.com/ubiquity-os/plugin-manifest-tool/commit/7b6dbe0429df8d2147d79dd58abb48b3c1d55fc0))
