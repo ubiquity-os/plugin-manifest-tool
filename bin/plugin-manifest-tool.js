@@ -61,7 +61,7 @@ function isMissingExecutableError(error) {
   }
 
   const message = error && error.message ? error.message : String(error);
-  return /enoent|not found/i.test(message);
+  return /spawn .*enoent/i.test(message) || /command not found/i.test(message) || /executable file not found/i.test(message);
 }
 
 /**
