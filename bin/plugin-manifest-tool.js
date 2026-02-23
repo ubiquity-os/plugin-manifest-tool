@@ -11,6 +11,58 @@ const execFileAsync = promisify(execFile);
 const MANIFEST_EXPORT_KEYS = ["pluginSettingsSchema", "commandSchema"];
 const DENO_OUTPUT_PREFIX = "__CODEX_MANIFEST_EXPORTS__";
 const ENTRYPOINT_FNS = ["createPlugin", "createActionsPlugin"];
+const DENO_BIN_OVERRIDE_ENV = "PLUGIN_MANIFEST_DENO_BIN";
+
+/**
+ * Resolves how to invoke Deno for runtime module loading.
+ * Prefers explicit override, then bundled npm dependency, then PATH.
+ *
+ * @returns {{ command: string, argsPrefix: string[], source: "env" | "bundled" | "path" }}
+ */
+function resolveDenoCommand() {
+  const override = process.env[DENO_BIN_OVERRIDE_ENV];
+  if (typeof override === "string" && override.trim()) {
+    return {
+      command: override.trim(),
+      argsPrefix: [],
+      source: "env",
+    };
+  }
+
+  try {
+    const denoCliScript = require.resolve("deno/bin.cjs");
+    return {
+      command: process.execPath,
+      argsPrefix: [denoCliScript],
+      source: "bundled",
+    };
+  } catch {
+    return {
+      command: "deno",
+      argsPrefix: [],
+      source: "path",
+    };
+  }
+}
+
+/**
+ * Detects whether an execution error was caused by a missing binary.
+ *
+ * @param {unknown} error
+ * @returns {boolean}
+ */
+function isMissingExecutableError(error) {
+  if (!error) {
+    return false;
+  }
+
+  if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
+    return true;
+  }
+
+  const message = error && error.message ? error.message : String(error);
+  return /enoent|not found/i.test(message);
+}
 
 /**
  * Recursively lists files under a directory.
@@ -1315,6 +1367,7 @@ async function findEntrypointCallsite(projectRoot) {
  */
 async function loadPluginModule(modulePath, exportKeys = MANIFEST_EXPORT_KEYS) {
   const loadErrors = [];
+  const denoCommand = resolveDenoCommand();
 
   try {
     const moduleUrl = pathToFileURL(modulePath).href;
@@ -1345,14 +1398,14 @@ for (const key of keys) {
 console.log(${JSON.stringify(DENO_OUTPUT_PREFIX)} + JSON.stringify(out));
 `;
 
-    const { stdout } = await execFileAsync("deno", ["eval", "--quiet", script], {
+    const { stdout } = await execFileAsync(denoCommand.command, [...denoCommand.argsPrefix, "eval", "--quiet", script], {
       maxBuffer: 20 * 1024 * 1024,
       timeout: 60_000,
     });
 
     return parseDenoLoaderOutput(stdout, exportKeys);
   } catch (denoError) {
-    loadErrors.push({ runtime: "deno", error: denoError });
+    loadErrors.push({ runtime: `deno-${denoCommand.source}`, error: denoError });
   }
 
   let injectedDenoShim = false;
@@ -1377,7 +1430,12 @@ console.log(${JSON.stringify(DENO_OUTPUT_PREFIX)} + JSON.stringify(out));
           return `[${runtime}] ${message}`;
         })
         .join("\n");
-      throw new Error(`Error loading module from ${modulePath}:\n${details}`);
+      const denoFailure = loadErrors.find((item) => item.runtime.startsWith("deno-"));
+      const denoHint =
+        denoFailure && isMissingExecutableError(denoFailure.error)
+          ? `\nHint: could not find a Deno runtime. Ensure optional dependencies are installed, install Deno globally, or set ${DENO_BIN_OVERRIDE_ENV}=/path/to/deno.`
+          : "";
+      throw new Error(`Error loading module from ${modulePath}:\n${details}${denoHint}`);
     }
   } finally {
     if (injectedDenoShim) {
@@ -1646,6 +1704,8 @@ module.exports = {
   pickManifestExports,
   parseDenoLoaderOutput,
   ensureNodeDenoShim,
+  resolveDenoCommand,
+  isMissingExecutableError,
   normalizeSkipBotEvents,
   parseExcludedSupportedEvents,
   findMatchingDelimiter,
