@@ -14,6 +14,8 @@ const {
   pickManifestExports,
   parseDenoLoaderOutput,
   ensureNodeDenoShim,
+  resolveDenoCommand,
+  isMissingExecutableError,
   normalizeSkipBotEvents,
   parseExcludedSupportedEvents,
   parseStaticDecodeTypeAlias,
@@ -777,5 +779,30 @@ describe("misc utility behavior", () => {
         globalThis.Deno = previous;
       }
     }
+  });
+
+  it("resolveDenoCommand honors PLUGIN_MANIFEST_DENO_BIN override", () => {
+    const previous = process.env.PLUGIN_MANIFEST_DENO_BIN;
+    process.env.PLUGIN_MANIFEST_DENO_BIN = "/tmp/custom-deno";
+
+    try {
+      assert.deepEqual(resolveDenoCommand(), {
+        command: "/tmp/custom-deno",
+        argsPrefix: [],
+        source: "env",
+      });
+    } finally {
+      if (previous === undefined) {
+        delete process.env.PLUGIN_MANIFEST_DENO_BIN;
+      } else {
+        process.env.PLUGIN_MANIFEST_DENO_BIN = previous;
+      }
+    }
+  });
+
+  it("isMissingExecutableError detects ENOENT-style failures", () => {
+    assert.equal(isMissingExecutableError({ code: "ENOENT" }), true);
+    assert.equal(isMissingExecutableError(new Error("spawn deno ENOENT")), true);
+    assert.equal(isMissingExecutableError(new Error("syntax error")), false);
   });
 });

@@ -17,7 +17,7 @@ bun add -D @ubiquity-os/plugin-manifest-tool
 Run from your plugin repository root:
 
 ```bash
-bun x @ubiquity-os/plugin-manifest-tool .
+bunx @ubiquity-os/plugin-manifest-tool@latest .
 ```
 
 The command reads your plugin source and writes/updates `manifest.json` in the provided project directory.
@@ -27,7 +27,7 @@ The command reads your plugin source and writes/updates `manifest.json` in the p
 ```json
 {
   "scripts": {
-    "prepare:manifest": "bun x @ubiquity-os/plugin-manifest-tool .",
+    "prepare:manifest": "bunx @ubiquity-os/plugin-manifest-tool@latest .",
     "prebuild": "bun run prepare:manifest && <your-existing-prebuild>",
     "predev": "bun run prepare:manifest && <your-existing-predev>"
   }
@@ -38,8 +38,10 @@ The command reads your plugin source and writes/updates `manifest.json` in the p
 
 ```yaml
 - uses: oven-sh/setup-bun@v2
-- run: bun x @ubiquity-os/plugin-manifest-tool .
+- run: bunx @ubiquity-os/plugin-manifest-tool@latest .
 ```
+
+No workflow-level Deno setup is required. The package bundles a Deno runner through npm dependencies and falls back to a global `deno` binary when available.
 
 ## CI mode environment variables
 
@@ -53,6 +55,14 @@ The CLI supports two modes:
   - `GITHUB_REF_NAME`
 
 This preserves compatibility with existing `action-deploy-plugin` flows.
+
+### Runtime override
+
+If you need a specific Deno binary path, set:
+
+```bash
+export PLUGIN_MANIFEST_DENO_BIN=/path/to/deno
+```
 
 ## Development
 
