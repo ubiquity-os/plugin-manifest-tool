@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - development
+      - main
 
 permissions:
   contents: write
@@ -17,4 +17,4 @@ jobs:
       - uses: googleapis/release-please-action@v4
         with:
           release-type: simple
-          target-branch: development
+          target-branch: main
