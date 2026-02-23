@@ -24,7 +24,7 @@
     "format:write": "prettier --write .",
     "check": "run-s lint format test",
     "prepare": "husky",
-    "sdk:build": "bun run check && npm pack --dry-run >/dev/null"
+    "sdk:build": "bun run check && bun pm pack --dry-run --quiet >/dev/null"
   },
   "devDependencies": {
     "@commitlint/cli": "^20.1.0",
