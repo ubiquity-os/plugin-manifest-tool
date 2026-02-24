@@ -761,10 +761,16 @@ function parseObjectLiteral(expression) {
 
   const properties = new Map();
   const spreads = [];
+  const entriesInOrder = [];
 
   for (const entry of entries) {
     if (entry.startsWith("...")) {
-      spreads.push(entry.slice(3).trim());
+      const spreadExpression = entry.slice(3).trim();
+      spreads.push(spreadExpression);
+      entriesInOrder.push({
+        type: "spread",
+        expression: spreadExpression,
+      });
       continue;
     }
 
@@ -772,6 +778,11 @@ function parseObjectLiteral(expression) {
     if (colonIndex === -1) {
       if (/^[A-Za-z_$][\w$]*$/.test(entry)) {
         properties.set(entry, entry);
+        entriesInOrder.push({
+          type: "property",
+          key: entry,
+          value: entry,
+        });
       }
       continue;
     }
@@ -781,12 +792,18 @@ function parseObjectLiteral(expression) {
 
     const value = entry.slice(colonIndex + 1).trim();
     properties.set(key, value);
+    entriesInOrder.push({
+      type: "property",
+      key,
+      value,
+    });
   }
 
   return {
     raw: objectLiteral,
     properties,
     spreads,
+    entries: entriesInOrder,
   };
 }
 
@@ -1455,6 +1472,60 @@ async function loadRuntimeReferenceValue(reference, projectRoot) {
   return value;
 }
 
+function createHigherPrecedenceSpreadResolutionError(spreadExpression, propertyName, filePath, projectRoot, cause) {
+  const reason = cause && cause.message ? cause.message : String(cause);
+  const relativePath = path.relative(projectRoot, filePath);
+  return new Error(`Could not resolve higher-precedence spread "${spreadExpression}" while resolving "${propertyName}" in ${relativePath}: ${reason}`);
+}
+
+async function resolveOptionPropertyValue(optionsObject, propertyName, filePath, projectRoot, cache) {
+  const entries = Array.isArray(optionsObject.entries) ? optionsObject.entries : [];
+
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const entry = entries[i];
+
+    if (entry.type === "property") {
+      if (entry.key !== propertyName) {
+        continue;
+      }
+
+      const propertyRef = await resolveRuntimeReferenceFromIdentifier(entry.value, filePath, projectRoot, cache);
+      return await loadRuntimeReferenceValue(propertyRef, projectRoot);
+    }
+
+    const spreadExpr = entry.expression;
+
+    const inlineSpreadObject = parseObjectLiteral(spreadExpr);
+    if (inlineSpreadObject) {
+      const nestedValue = await resolveOptionPropertyValue(inlineSpreadObject, propertyName, filePath, projectRoot, cache);
+      if (nestedValue !== undefined) {
+        return nestedValue;
+      }
+      continue;
+    }
+
+    let spreadRef;
+    try {
+      spreadRef = await resolveRuntimeReferenceFromIdentifier(spreadExpr, filePath, projectRoot, cache);
+    } catch (error) {
+      throw createHigherPrecedenceSpreadResolutionError(spreadExpr, propertyName, filePath, projectRoot, error);
+    }
+
+    let spreadValue;
+    try {
+      spreadValue = await loadRuntimeReferenceValue(spreadRef, projectRoot);
+    } catch (error) {
+      throw createHigherPrecedenceSpreadResolutionError(spreadExpr, propertyName, filePath, projectRoot, error);
+    }
+
+    if (spreadValue && typeof spreadValue === "object" && Object.prototype.hasOwnProperty.call(spreadValue, propertyName)) {
+      return spreadValue[propertyName];
+    }
+  }
+
+  return undefined;
+}
+
 async function extractManifestMetadataFromEntrypoint(projectRoot, excludeSupportedEventsInput = "") {
   const sourceCache = new Map();
   const entrypoint = await findEntrypointCallsite(projectRoot);
@@ -1478,15 +1549,12 @@ async function extractManifestMetadataFromEntrypoint(projectRoot, excludeSupport
     throw new Error(`Could not parse ${entrypoint.functionName} options object in ${path.relative(projectRoot, entrypoint.filePath)}.`);
   }
 
-  if (!optionsObject.properties.has("settingsSchema")) {
+  const pluginSettingsSchema = await resolveOptionPropertyValue(optionsObject, "settingsSchema", entrypoint.filePath, projectRoot, sourceCache);
+  if (pluginSettingsSchema === undefined) {
     throw new Error(
-      `${entrypoint.functionName} options in ${path.relative(projectRoot, entrypoint.filePath)} must include a direct "settingsSchema" property.`
+      `${entrypoint.functionName} options in ${path.relative(projectRoot, entrypoint.filePath)} must include a resolvable "settingsSchema" property (directly or via object spread).`
     );
   }
-
-  const settingsSchemaExpr = optionsObject.properties.get("settingsSchema");
-  const settingsSchemaRef = await resolveRuntimeReferenceFromIdentifier(settingsSchemaExpr, entrypoint.filePath, projectRoot, sourceCache);
-  const pluginSettingsSchema = await loadRuntimeReferenceValue(settingsSchemaRef, projectRoot);
 
   const commandTypeExpr = entrypoint.genericArgs[2];
   const normalizedCommandType = stripOuterParens(commandTypeExpr).trim();
