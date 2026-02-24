@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.1.1](https://github.com/ubiquity-os/plugin-manifest-tool/compare/v1.1.0...v1.1.1) (2026-02-24)
+
+
+### Bug Fixes
+
+* **manifest:** honor object spread precedence in settings schema resolution ([13a71be](https://github.com/ubiquity-os/plugin-manifest-tool/commit/13a71beef4d808138828a1e0d36d9357b2bdae5f))
+* **manifest:** resolve settingsSchema from option spreads ([4b6ca8f](https://github.com/ubiquity-os/plugin-manifest-tool/commit/4b6ca8f5379384d949ab2b5de105612e4b49640e))
+* **manifest:** support spread-based settingsSchema resolution ([9258678](https://github.com/ubiquity-os/plugin-manifest-tool/commit/92586786a817cd53765c3b0248b13c9e4066a9a4))
+
 ## [1.1.0](https://github.com/ubiquity-os/plugin-manifest-tool/compare/v1.0.2...v1.1.0) (2026-02-23)
 
 
