@@ -761,10 +761,16 @@ function parseObjectLiteral(expression) {
 
   const properties = new Map();
   const spreads = [];
+  const entriesInOrder = [];
 
   for (const entry of entries) {
     if (entry.startsWith("...")) {
-      spreads.push(entry.slice(3).trim());
+      const spreadExpression = entry.slice(3).trim();
+      spreads.push(spreadExpression);
+      entriesInOrder.push({
+        type: "spread",
+        expression: spreadExpression,
+      });
       continue;
     }
 
@@ -772,6 +778,11 @@ function parseObjectLiteral(expression) {
     if (colonIndex === -1) {
       if (/^[A-Za-z_$][\w$]*$/.test(entry)) {
         properties.set(entry, entry);
+        entriesInOrder.push({
+          type: "property",
+          key: entry,
+          value: entry,
+        });
       }
       continue;
     }
@@ -781,12 +792,18 @@ function parseObjectLiteral(expression) {
 
     const value = entry.slice(colonIndex + 1).trim();
     properties.set(key, value);
+    entriesInOrder.push({
+      type: "property",
+      key,
+      value,
+    });
   }
 
   return {
     raw: objectLiteral,
     properties,
     spreads,
+    entries: entriesInOrder,
   };
 }
 
@@ -1455,15 +1472,28 @@ async function loadRuntimeReferenceValue(reference, projectRoot) {
   return value;
 }
 
-async function resolveOptionPropertyValue(optionsObject, propertyName, filePath, projectRoot, cache) {
-  if (optionsObject.properties.has(propertyName)) {
-    const propertyExpr = optionsObject.properties.get(propertyName);
-    const propertyRef = await resolveRuntimeReferenceFromIdentifier(propertyExpr, filePath, projectRoot, cache);
-    return await loadRuntimeReferenceValue(propertyRef, projectRoot);
-  }
+function createHigherPrecedenceSpreadResolutionError(spreadExpression, propertyName, filePath, projectRoot, cause) {
+  const reason = cause && cause.message ? cause.message : String(cause);
+  const relativePath = path.relative(projectRoot, filePath);
+  return new Error(`Could not resolve higher-precedence spread "${spreadExpression}" while resolving "${propertyName}" in ${relativePath}: ${reason}`);
+}
 
-  for (let i = optionsObject.spreads.length - 1; i >= 0; i--) {
-    const spreadExpr = optionsObject.spreads[i];
+async function resolveOptionPropertyValue(optionsObject, propertyName, filePath, projectRoot, cache) {
+  const entries = Array.isArray(optionsObject.entries) ? optionsObject.entries : [];
+
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const entry = entries[i];
+
+    if (entry.type === "property") {
+      if (entry.key !== propertyName) {
+        continue;
+      }
+
+      const propertyRef = await resolveRuntimeReferenceFromIdentifier(entry.value, filePath, projectRoot, cache);
+      return await loadRuntimeReferenceValue(propertyRef, projectRoot);
+    }
+
+    const spreadExpr = entry.expression;
 
     const inlineSpreadObject = parseObjectLiteral(spreadExpr);
     if (inlineSpreadObject) {
@@ -1477,15 +1507,15 @@ async function resolveOptionPropertyValue(optionsObject, propertyName, filePath,
     let spreadRef;
     try {
       spreadRef = await resolveRuntimeReferenceFromIdentifier(spreadExpr, filePath, projectRoot, cache);
-    } catch {
-      continue;
+    } catch (error) {
+      throw createHigherPrecedenceSpreadResolutionError(spreadExpr, propertyName, filePath, projectRoot, error);
     }
 
     let spreadValue;
     try {
       spreadValue = await loadRuntimeReferenceValue(spreadRef, projectRoot);
-    } catch {
-      continue;
+    } catch (error) {
+      throw createHigherPrecedenceSpreadResolutionError(spreadExpr, propertyName, filePath, projectRoot, error);
     }
 
     if (spreadValue && typeof spreadValue === "object" && Object.prototype.hasOwnProperty.call(spreadValue, propertyName)) {

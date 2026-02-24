@@ -429,6 +429,139 @@ export const pluginRuntimeSchemas = {
     });
   });
 
+  it("resolves settingsSchema with last-write-wins precedence across direct keys and spreads", async () => {
+    const projectRoot = createProject("metadata-settings-schema-spread-override-order");
+    scaffoldStandardPlugin(projectRoot, {
+      entrypointSource: `import { createPlugin } from "@ubiquity-os/plugin-sdk/worker";
+import { baseSettingsSchema } from "./schemas.mjs";
+import { runtimeOverrides } from "./runtime-options";
+import type {
+  PluginConfig,
+  PluginContext,
+  CommandInput,
+  SupportedEvents,
+} from "./types";
+
+export const plugin = createPlugin<
+  PluginConfig,
+  PluginContext,
+  CommandInput,
+  SupportedEvents
+>(
+  {},
+  {},
+  {
+    settingsSchema: baseSettingsSchema,
+    ...runtimeOverrides,
+  },
+);
+`,
+      schemasSource: `export const settingsRuntimeSchema = {
+  type: "object",
+  properties: {
+    greeting: { type: "string", default: "hello" }
+  },
+  required: ["greeting"]
+};
+
+export const baseSettingsSchema = {
+  type: "object",
+  properties: {
+    source: { type: "string", default: "base" }
+  },
+  required: ["source"]
+};
+
+export const commandRuntimeSchema = {
+  start: {
+    description: "Start command",
+    "ubiquity:example": "/start"
+  }
+};
+`,
+    });
+    writeProjectFile(
+      projectRoot,
+      "src/runtime-options.ts",
+      `export const runtimeOverrides = {
+  settingsSchema: {
+    type: "object",
+    properties: {
+      source: { type: "string", default: "spread" }
+    },
+    required: ["source"]
+  }
+};
+`
+    );
+
+    const metadata = await extractManifestMetadataFromEntrypoint(projectRoot);
+
+    assert.deepEqual(metadata.pluginSettingsSchema, {
+      type: "object",
+      properties: {
+        source: { type: "string", default: "spread" },
+      },
+      required: ["source"],
+    });
+  });
+
+  it("fails when a higher-precedence spread cannot be resolved", async () => {
+    const projectRoot = createProject("metadata-settings-schema-unresolvable-higher-spread");
+    scaffoldStandardPlugin(projectRoot, {
+      entrypointSource: `import { createPlugin } from "@ubiquity-os/plugin-sdk/worker";
+import { pluginRuntimeSchemas, getRuntimeSchemas } from "./runtime-options";
+import type {
+  PluginConfig,
+  PluginContext,
+  CommandInput,
+  SupportedEvents,
+} from "./types";
+
+export const plugin = createPlugin<
+  PluginConfig,
+  PluginContext,
+  CommandInput,
+  SupportedEvents
+>(
+  {},
+  {},
+  {
+    ...pluginRuntimeSchemas,
+    ...getRuntimeSchemas(),
+  },
+);
+`,
+    });
+    writeProjectFile(
+      projectRoot,
+      "src/runtime-options.ts",
+      `import { settingsRuntimeSchema } from "./schemas.mjs";
+
+export const pluginRuntimeSchemas = {
+  settingsSchema: settingsRuntimeSchema,
+};
+
+export function getRuntimeSchemas() {
+  return {
+    settingsSchema: {
+      type: "object",
+      properties: {
+        source: { type: "string", default: "runtime" }
+      },
+      required: ["source"]
+    }
+  };
+}
+`
+    );
+
+    await assert.rejects(
+      () => extractManifestMetadataFromEntrypoint(projectRoot),
+      /Could not resolve higher-precedence spread "getRuntimeSchemas\(\)" while resolving "settingsSchema"/i
+    );
+  });
+
   it("uses createActionsPlugin when createPlugin is absent", async () => {
     const projectRoot = createProject("metadata-create-actions-plugin");
     scaffoldStandardPlugin(projectRoot, {
