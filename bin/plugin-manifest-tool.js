@@ -1455,6 +1455,47 @@ async function loadRuntimeReferenceValue(reference, projectRoot) {
   return value;
 }
 
+async function resolveOptionPropertyValue(optionsObject, propertyName, filePath, projectRoot, cache) {
+  if (optionsObject.properties.has(propertyName)) {
+    const propertyExpr = optionsObject.properties.get(propertyName);
+    const propertyRef = await resolveRuntimeReferenceFromIdentifier(propertyExpr, filePath, projectRoot, cache);
+    return await loadRuntimeReferenceValue(propertyRef, projectRoot);
+  }
+
+  for (let i = optionsObject.spreads.length - 1; i >= 0; i--) {
+    const spreadExpr = optionsObject.spreads[i];
+
+    const inlineSpreadObject = parseObjectLiteral(spreadExpr);
+    if (inlineSpreadObject) {
+      const nestedValue = await resolveOptionPropertyValue(inlineSpreadObject, propertyName, filePath, projectRoot, cache);
+      if (nestedValue !== undefined) {
+        return nestedValue;
+      }
+      continue;
+    }
+
+    let spreadRef;
+    try {
+      spreadRef = await resolveRuntimeReferenceFromIdentifier(spreadExpr, filePath, projectRoot, cache);
+    } catch {
+      continue;
+    }
+
+    let spreadValue;
+    try {
+      spreadValue = await loadRuntimeReferenceValue(spreadRef, projectRoot);
+    } catch {
+      continue;
+    }
+
+    if (spreadValue && typeof spreadValue === "object" && Object.prototype.hasOwnProperty.call(spreadValue, propertyName)) {
+      return spreadValue[propertyName];
+    }
+  }
+
+  return undefined;
+}
+
 async function extractManifestMetadataFromEntrypoint(projectRoot, excludeSupportedEventsInput = "") {
   const sourceCache = new Map();
   const entrypoint = await findEntrypointCallsite(projectRoot);
@@ -1478,15 +1519,12 @@ async function extractManifestMetadataFromEntrypoint(projectRoot, excludeSupport
     throw new Error(`Could not parse ${entrypoint.functionName} options object in ${path.relative(projectRoot, entrypoint.filePath)}.`);
   }
 
-  if (!optionsObject.properties.has("settingsSchema")) {
+  const pluginSettingsSchema = await resolveOptionPropertyValue(optionsObject, "settingsSchema", entrypoint.filePath, projectRoot, sourceCache);
+  if (pluginSettingsSchema === undefined) {
     throw new Error(
-      `${entrypoint.functionName} options in ${path.relative(projectRoot, entrypoint.filePath)} must include a direct "settingsSchema" property.`
+      `${entrypoint.functionName} options in ${path.relative(projectRoot, entrypoint.filePath)} must include a resolvable "settingsSchema" property (directly or via object spread).`
     );
   }
-
-  const settingsSchemaExpr = optionsObject.properties.get("settingsSchema");
-  const settingsSchemaRef = await resolveRuntimeReferenceFromIdentifier(settingsSchemaExpr, entrypoint.filePath, projectRoot, sourceCache);
-  const pluginSettingsSchema = await loadRuntimeReferenceValue(settingsSchemaRef, projectRoot);
 
   const commandTypeExpr = entrypoint.genericArgs[2];
   const normalizedCommandType = stripOuterParens(commandTypeExpr).trim();

@@ -380,6 +380,55 @@ describe("entrypoint discovery and metadata extraction", () => {
     assert.deepEqual(metadata.supportedEvents, ["issue_comment.created", "pull_request.opened", "issues.labeled"]);
   });
 
+  it("extracts settings schema when createPlugin options provide it through object spread", async () => {
+    const projectRoot = createProject("metadata-settings-schema-spread");
+    scaffoldStandardPlugin(projectRoot, {
+      entrypointSource: `import { createPlugin } from "@ubiquity-os/plugin-sdk/worker";
+import { pluginRuntimeSchemas } from "./runtime-options";
+import type {
+  PluginConfig,
+  PluginContext,
+  CommandInput,
+  SupportedEvents,
+} from "./types";
+
+export const plugin = createPlugin<
+  PluginConfig,
+  PluginContext,
+  CommandInput,
+  SupportedEvents
+>(
+  {},
+  {},
+  {
+    postCommentOnError: true,
+    ...pluginRuntimeSchemas,
+  },
+);
+`,
+    });
+    writeProjectFile(
+      projectRoot,
+      "src/runtime-options.ts",
+      `import { settingsRuntimeSchema } from "./schemas.mjs";
+
+export const pluginRuntimeSchemas = {
+  settingsSchema: settingsRuntimeSchema,
+};
+`
+    );
+
+    const metadata = await extractManifestMetadataFromEntrypoint(projectRoot);
+
+    assert.deepEqual(metadata.pluginSettingsSchema, {
+      type: "object",
+      properties: {
+        greeting: { type: "string", default: "hello" },
+      },
+      required: ["greeting"],
+    });
+  });
+
   it("uses createActionsPlugin when createPlugin is absent", async () => {
     const projectRoot = createProject("metadata-create-actions-plugin");
     scaffoldStandardPlugin(projectRoot, {
@@ -569,7 +618,10 @@ export const plugin = createPlugin<
 `,
     });
 
-    await assert.rejects(() => extractManifestMetadataFromEntrypoint(projectRoot), /must include a direct "settingsSchema" property/i);
+    await assert.rejects(
+      () => extractManifestMetadataFromEntrypoint(projectRoot),
+      /must include a resolvable "settingsSchema" property \(directly or via object spread\)/i
+    );
   });
 
   it("fails when command type alias is not StaticDecode/Static<typeof ...>", async () => {
