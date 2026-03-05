@@ -17,17 +17,18 @@ bun add -D @ubiquity-os/plugin-manifest-tool
 Run from your plugin repository root:
 
 ```bash
-bunx @ubiquity-os/plugin-manifest-tool@latest .
+bunx @ubiquity-os/plugin-manifest-tool@latest
 ```
 
-The command reads your plugin source and writes/updates `manifest.json` in the provided project directory.
+The command reads your plugin source and writes/updates `manifest.json` in the current directory.
+You can still pass a project path (for example `.` or `./packages/my-plugin`) when needed.
 
 ### package.json scripts
 
 ```json
 {
   "scripts": {
-    "prepare:manifest": "bunx @ubiquity-os/plugin-manifest-tool@latest .",
+    "prepare:manifest": "bunx @ubiquity-os/plugin-manifest-tool@latest",
     "prebuild": "bun run prepare:manifest && <your-existing-prebuild>",
     "predev": "bun run prepare:manifest && <your-existing-predev>"
   }
@@ -38,23 +39,22 @@ The command reads your plugin source and writes/updates `manifest.json` in the p
 
 ```yaml
 - uses: oven-sh/setup-bun@v2
-- run: bunx @ubiquity-os/plugin-manifest-tool@latest .
+- run: bunx @ubiquity-os/plugin-manifest-tool@latest
 ```
 
 No workflow-level Deno setup is required. The package bundles a Deno runner through npm dependencies and falls back to a global `deno` binary when available.
 
-## CI mode environment variables
+## Optional environment overrides
 
-The CLI supports two modes:
+The CLI now works out of the box with no env setup.
+When env vars are present they are still honored:
 
-- Local mode: pass a project root argument (for example `.`).
-- CI mode: when no positional argument is passed, it reads:
-  - `MANIFEST_PATH`
-  - `GITHUB_WORKSPACE`
-  - `GITHUB_REPOSITORY`
-  - `GITHUB_REF_NAME`
+- `MANIFEST_PATH` (defaults to `<projectRoot>/manifest.json`)
+- `GITHUB_WORKSPACE` (defaults to current working directory)
+- `GITHUB_REPOSITORY` (falls back to git remote `origin`, then `local/<dir>`)
+- `GITHUB_REF_NAME` / `GITHUB_REF` (falls back to current git branch, then `local`)
 
-This preserves compatibility with existing `action-deploy-plugin` flows.
+This keeps compatibility with existing `action-deploy-plugin` flows while making local usage simple.
 
 ### Runtime override
 

@@ -2,7 +2,7 @@
 const fs = require("fs").promises;
 const fsSync = require("fs");
 const path = require("path");
-const { execFile } = require("child_process");
+const { execFile, execFileSync } = require("child_process");
 const { promisify } = require("util");
 const { pathToFileURL } = require("url");
 
@@ -1651,35 +1651,136 @@ async function formatManifestWithPrettier(manifestPath, cwd) {
 }
 
 /**
- * Resolves configuration from environment variables (CI mode) or CLI arguments (local mode).
+ * Normalizes git remote URLs to owner/repo format when possible.
+ *
+ * @param {string | undefined} remoteUrl
+ * @returns {string | null}
  */
-function resolveConfig() {
-  const localProjectRoot = process.argv[2];
-
-  if (localProjectRoot) {
-    const projectRoot = path.resolve(localProjectRoot);
-    return {
-      manifestPath: path.join(projectRoot, "manifest.json"),
-      projectRoot,
-      repository: `local/${path.basename(projectRoot)}`,
-      refName: "local",
-      skipBotEvents: process.env.SKIP_BOT_EVENTS ?? "true",
-      excludeSupportedEvents: process.env.EXCLUDE_SUPPORTED_EVENTS ?? "",
-    };
+function parseRepositoryFromRemoteUrl(remoteUrl) {
+  if (typeof remoteUrl !== "string" || !remoteUrl.trim()) {
+    return null;
   }
 
-  const manifestPath = process.env.MANIFEST_PATH;
-  const projectRoot = process.env.GITHUB_WORKSPACE;
-  const repository = process.env.GITHUB_REPOSITORY;
-  const refName = process.env.GITHUB_REF_NAME;
-  const skipBotEvents = process.env.SKIP_BOT_EVENTS ?? "true";
-  const excludeSupportedEvents = process.env.EXCLUDE_SUPPORTED_EVENTS ?? "";
+  const trimmed = remoteUrl.trim();
+  const sshMatch = /^.+@[^:]+:(.+)$/.exec(trimmed);
+  let pathSegment = sshMatch ? sshMatch[1] : null;
 
-  if (!manifestPath || !projectRoot || !repository || !refName) {
-    console.error("Missing required environment variables (MANIFEST_PATH, GITHUB_WORKSPACE, GITHUB_REPOSITORY, GITHUB_REF_NAME)");
-    console.error("\nFor local testing, pass the project root as an argument:\n  node update-manifest.js /path/to/plugin-project");
-    process.exit(1);
+  if (!pathSegment) {
+    try {
+      pathSegment = new URL(trimmed).pathname;
+    } catch {
+      return null;
+    }
   }
+
+  const normalized = pathSegment
+    .replace(/^\/+/, "")
+    .replace(/\/+$/, "")
+    .replace(/\.git$/i, "");
+
+  const segments = normalized.split("/");
+  if (segments.length < 2 || !segments[0] || !segments[1]) {
+    return null;
+  }
+
+  return `${segments[0]}/${segments[1]}`;
+}
+
+/**
+ * Reads a value from git, returning null when unavailable.
+ *
+ * @param {string} projectRoot
+ * @param {string[]} args
+ * @returns {string | null}
+ */
+function readGitValue(projectRoot, args) {
+  try {
+    const output = execFileSync("git", ["-C", projectRoot, ...args], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    return output || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Detects owner/repo from git remote origin.
+ *
+ * @param {string} projectRoot
+ * @returns {string | null}
+ */
+function detectRepositoryFromGit(projectRoot) {
+  const remote = readGitValue(projectRoot, ["config", "--get", "remote.origin.url"]);
+  return parseRepositoryFromRemoteUrl(remote);
+}
+
+/**
+ * Extracts a ref name from GitHub's full ref format.
+ *
+ * @param {string | undefined} ref
+ * @returns {string | null}
+ */
+function parseRefNameFromGitHubRef(ref) {
+  if (typeof ref !== "string" || !ref.trim()) {
+    return null;
+  }
+
+  if (ref.startsWith("refs/heads/")) {
+    return ref.slice("refs/heads/".length);
+  }
+
+  if (ref.startsWith("refs/tags/")) {
+    return ref.slice("refs/tags/".length);
+  }
+
+  return ref;
+}
+
+/**
+ * Detects the current git branch name.
+ *
+ * @param {string} projectRoot
+ * @returns {string | null}
+ */
+function detectRefNameFromGit(projectRoot) {
+  const ref = readGitValue(projectRoot, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+  return ref && ref !== "HEAD" ? ref : null;
+}
+
+/**
+ * Resolves configuration from CLI args, environment variables, and local git metadata.
+ *
+ * @param {{
+ *   argv?: string[],
+ *   env?: NodeJS.ProcessEnv,
+ *   cwd?: string,
+ *   getRepositoryFromGit?: (projectRoot: string) => string | null,
+ *   getRefNameFromGit?: (projectRoot: string) => string | null,
+ * }} [options]
+ */
+function resolveConfig(options = {}) {
+  const argv = options.argv ?? process.argv;
+  const env = options.env ?? process.env;
+  const cwd = options.cwd ?? process.cwd();
+  const getRepositoryFromGit = options.getRepositoryFromGit ?? detectRepositoryFromGit;
+  const getRefNameFromGit = options.getRefNameFromGit ?? detectRefNameFromGit;
+
+  const projectRootInput = argv[2] || env.GITHUB_WORKSPACE || cwd;
+  const projectRoot = path.resolve(projectRootInput);
+
+  const manifestPathEnv = env.MANIFEST_PATH;
+  const manifestPath = manifestPathEnv
+    ? path.isAbsolute(manifestPathEnv)
+      ? manifestPathEnv
+      : path.resolve(projectRoot, manifestPathEnv)
+    : path.join(projectRoot, "manifest.json");
+
+  const repository = env.GITHUB_REPOSITORY || getRepositoryFromGit(projectRoot) || `local/${path.basename(projectRoot)}`;
+  const refName = env.GITHUB_REF_NAME || parseRefNameFromGitHubRef(env.GITHUB_REF) || getRefNameFromGit(projectRoot) || "local";
+  const skipBotEvents = env.SKIP_BOT_EVENTS ?? "true";
+  const excludeSupportedEvents = env.EXCLUDE_SUPPORTED_EVENTS ?? "";
 
   return {
     manifestPath,
@@ -1774,6 +1875,11 @@ module.exports = {
   ensureNodeDenoShim,
   resolveDenoCommand,
   isMissingExecutableError,
+  parseRepositoryFromRemoteUrl,
+  parseRefNameFromGitHubRef,
+  detectRepositoryFromGit,
+  detectRefNameFromGit,
+  resolveConfig,
   normalizeSkipBotEvents,
   parseExcludedSupportedEvents,
   findMatchingDelimiter,
