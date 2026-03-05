@@ -217,6 +217,38 @@ describe("buildManifest", () => {
     assert.equal(manifest.commands.start["ubiquity:example"], "/start");
     assert.ok(!warnings.some((warning) => warning.includes("could not be converted")));
   });
+
+  it("converts a single-object TypeBox command schema", () => {
+    const { manifest, warnings } = buildManifest(
+      {},
+      {
+        commandSchema: {
+          type: "object",
+          properties: {
+            name: {
+              const: "query",
+              description: "Query user",
+              examples: ["/query @UbiquityOS"],
+            },
+            parameters: {
+              type: "object",
+              properties: {
+                username: { type: "string" },
+              },
+            },
+          },
+          required: ["name", "parameters"],
+        },
+      },
+      { name: "test-plugin", description: "Test plugin" },
+      REPO_INFO,
+      { supportedEvents: ["issue_comment.created"] }
+    );
+
+    assert.equal(manifest.commands.query.description, "Query user");
+    assert.equal(manifest.commands.query["ubiquity:example"], "/query @UbiquityOS");
+    assert.ok(!warnings.some((warning) => warning.includes("manifest.commands")));
+  });
 });
 
 describe("validation helpers", () => {
@@ -239,6 +271,40 @@ describe("validation helpers", () => {
     const { commands, error } = convertTypeBoxCommandSchema({ anyOf: [] });
     assert.equal(commands, null);
     assert.ok(error.includes("anyOf/oneOf"));
+  });
+
+  it("convertTypeBoxCommandSchema converts single-object variant schemas", () => {
+    const { commands, error } = convertTypeBoxCommandSchema({
+      type: "object",
+      properties: {
+        name: {
+          const: "query",
+          description: "Query user",
+          examples: ["/query @UbiquityOS"],
+        },
+        parameters: {
+          type: "object",
+          properties: {
+            username: { type: "string" },
+          },
+        },
+      },
+      required: ["name", "parameters"],
+    });
+
+    assert.equal(error, null);
+    assert.deepEqual(commands, {
+      query: {
+        description: "Query user",
+        "ubiquity:example": "/query @UbiquityOS",
+        parameters: {
+          type: "object",
+          properties: {
+            username: { type: "string" },
+          },
+        },
+      },
+    });
   });
 
   it("validateListeners validates webhook event format", () => {
