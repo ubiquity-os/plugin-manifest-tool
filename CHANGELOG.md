@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.2.0](https://github.com/ubiquity-os/plugin-manifest-tool/compare/v1.1.1...v1.2.0) (2026-03-05)
+
+
+### Features
+
+* **manifest:** auto-detect repository and ref defaults ([#9](https://github.com/ubiquity-os/plugin-manifest-tool/issues/9)) ([200a006](https://github.com/ubiquity-os/plugin-manifest-tool/commit/200a00654ac38110ac2a90fa5fdd24bd209a3e3d))
+
+
+### Bug Fixes
+
+* **manifest:** convert single-object command schemas ([#10](https://github.com/ubiquity-os/plugin-manifest-tool/issues/10)) ([8a1d5e7](https://github.com/ubiquity-os/plugin-manifest-tool/commit/8a1d5e73453d9199a6593e47c1030d0f14ea2d7a))
+
 ## [1.1.1](https://github.com/ubiquity-os/plugin-manifest-tool/compare/v1.1.0...v1.1.1) (2026-02-24)
 
 
