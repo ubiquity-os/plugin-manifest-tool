@@ -16,6 +16,9 @@ const {
   ensureNodeDenoShim,
   resolveDenoCommand,
   isMissingExecutableError,
+  parseRepositoryFromRemoteUrl,
+  parseRefNameFromGitHubRef,
+  resolveConfig,
   normalizeSkipBotEvents,
   parseExcludedSupportedEvents,
   parseStaticDecodeTypeAlias,
@@ -953,6 +956,63 @@ export const value = Schemas.settingsRuntimeSchema;
 });
 
 describe("misc utility behavior", () => {
+  it("parses repository from common remote URL formats", () => {
+    assert.equal(parseRepositoryFromRemoteUrl("https://github.com/ubiquity-os/plugin-manifest-tool.git"), "ubiquity-os/plugin-manifest-tool");
+    assert.equal(parseRepositoryFromRemoteUrl("git@github.com:ubiquity-os/plugin-manifest-tool.git"), "ubiquity-os/plugin-manifest-tool");
+    assert.equal(parseRepositoryFromRemoteUrl("ssh://git@github.com/ubiquity-os/plugin-manifest-tool"), "ubiquity-os/plugin-manifest-tool");
+    assert.equal(parseRepositoryFromRemoteUrl("not-a-valid-remote"), null);
+  });
+
+  it("parses ref names from github refs", () => {
+    assert.equal(parseRefNameFromGitHubRef("refs/heads/feat/test"), "feat/test");
+    assert.equal(parseRefNameFromGitHubRef("refs/tags/v1.0.0"), "v1.0.0");
+    assert.equal(parseRefNameFromGitHubRef("feat/direct"), "feat/direct");
+    assert.equal(parseRefNameFromGitHubRef(undefined), null);
+  });
+
+  it("resolves config without requiring CI env variables", () => {
+    const projectRoot = createProject("resolve-config-defaults");
+    const config = resolveConfig({
+      argv: ["node", "plugin-manifest-tool.js"],
+      env: {},
+      cwd: projectRoot,
+      getRepositoryFromGit: () => "ubiquity-os/example-plugin",
+      getRefNameFromGit: () => "feat/my-branch",
+    });
+
+    assert.equal(config.projectRoot, projectRoot);
+    assert.equal(config.manifestPath, path.join(projectRoot, "manifest.json"));
+    assert.equal(config.repository, "ubiquity-os/example-plugin");
+    assert.equal(config.refName, "feat/my-branch");
+    assert.equal(config.skipBotEvents, "true");
+    assert.equal(config.excludeSupportedEvents, "");
+  });
+
+  it("resolves config from env overrides when provided", () => {
+    const projectRoot = createProject("resolve-config-env");
+    const config = resolveConfig({
+      argv: ["node", "plugin-manifest-tool.js"],
+      env: {
+        MANIFEST_PATH: "out/manifest.json",
+        GITHUB_WORKSPACE: projectRoot,
+        GITHUB_REPOSITORY: "ubiquity-os/override-plugin",
+        GITHUB_REF: "refs/heads/feature/env-ref",
+        SKIP_BOT_EVENTS: "false",
+        EXCLUDE_SUPPORTED_EVENTS: "issue_comment.created",
+      },
+      cwd: "/tmp/unused",
+      getRepositoryFromGit: () => "ignored/repository",
+      getRefNameFromGit: () => "ignored-ref",
+    });
+
+    assert.equal(config.projectRoot, projectRoot);
+    assert.equal(config.manifestPath, path.join(projectRoot, "out/manifest.json"));
+    assert.equal(config.repository, "ubiquity-os/override-plugin");
+    assert.equal(config.refName, "feature/env-ref");
+    assert.equal(config.skipBotEvents, "false");
+    assert.equal(config.excludeSupportedEvents, "issue_comment.created");
+  });
+
   it("pickManifestExports supports named and default object exports", () => {
     assert.deepEqual(
       pickManifestExports({
