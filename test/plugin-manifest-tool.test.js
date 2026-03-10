@@ -170,6 +170,57 @@ describe("buildManifest", () => {
     assert.equal(warnings.length, 0);
   });
 
+  it("accepts canonical dotless listeners", () => {
+    const pluginModule = {
+      pluginSettingsSchema: {
+        type: "object",
+        properties: {
+          greeting: { type: "string", default: "hello" },
+        },
+      },
+      commandSchema: {
+        ping: {
+          description: "Ping command",
+          "ubiquity:example": "/ping",
+        },
+      },
+    };
+
+    const { manifest, warnings } = buildManifest({}, pluginModule, { name: "test-plugin", description: "Test plugin" }, REPO_INFO, {
+      supportedEvents: ["push"],
+      knownWebhookEvents: new Set(["push", "issue_comment.created"]),
+    });
+
+    assert.deepEqual(manifest["ubiquity:listeners"], ["push"]);
+    assert.ok(!warnings.some((warning) => warning.includes('manifest["ubiquity:listeners"]')));
+  });
+
+  it("warns but preserves unknown listeners when canonical list is available", () => {
+    const pluginModule = {
+      pluginSettingsSchema: {
+        type: "object",
+        properties: {
+          greeting: { type: "string", default: "hello" },
+        },
+      },
+      commandSchema: {
+        ping: {
+          description: "Ping command",
+          "ubiquity:example": "/ping",
+        },
+      },
+    };
+
+    const { manifest, warnings } = buildManifest({}, pluginModule, { name: "test-plugin", description: "Test plugin" }, REPO_INFO, {
+      supportedEvents: ["push", "future_event.created"],
+      knownWebhookEvents: new Set(["push"]),
+    });
+
+    assert.deepEqual(manifest["ubiquity:listeners"], ["push", "future_event.created"]);
+    assert.ok(warnings.some((warning) => warning.includes("unknown webhook event(s): future_event.created")));
+    assert.ok(!warnings.some((warning) => warning.includes("supported events found but invalid")));
+  });
+
   it("suppresses missing-command warning when TCommand is null", () => {
     const { manifest, warnings } = buildManifest(
       {},
@@ -310,10 +361,17 @@ describe("validation helpers", () => {
     });
   });
 
-  it("validateListeners validates webhook event format", () => {
-    assert.equal(validateListeners(["issue_comment.created"]), null);
-    assert.ok(validateListeners("issue_comment.created").includes("array"));
-    assert.ok(validateListeners(["push"]).includes("event.action"));
+  it("validateListeners validates listener values and canonical unknowns", () => {
+    assert.deepEqual(validateListeners(["issue_comment.created"]), {
+      error: null,
+      unknownEvents: [],
+    });
+    assert.ok(validateListeners("issue_comment.created").error.includes("array"));
+    assert.ok(validateListeners([""]).error.includes("non-empty string"));
+    assert.deepEqual(validateListeners(["push", "future_event.created"], { knownWebhookEvents: new Set(["push"]) }), {
+      error: null,
+      unknownEvents: ["future_event.created"],
+    });
   });
 
   it("normalizes skipBotEvents values", () => {
