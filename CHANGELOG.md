@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1](https://github.com/ubiquity-os/plugin-manifest-tool/compare/v1.2.0...v1.2.1) (2026-03-10)
+
+
+### Bug Fixes
+
+* accept dotless webhook listeners ([2faec3b](https://github.com/ubiquity-os/plugin-manifest-tool/commit/2faec3b6d264470e4641050df748d5481fa5ff15))
+
 ## [1.2.0](https://github.com/ubiquity-os/plugin-manifest-tool/compare/v1.1.1...v1.2.0) (2026-03-05)
 
 

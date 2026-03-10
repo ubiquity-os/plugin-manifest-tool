@@ -1,6 +1,6 @@
 {
   "name": "@ubiquity-os/plugin-manifest-tool",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "CLI to generate UbiquityOS plugin manifest.json from plugin source code.",
   "license": "MIT",
   "author": "Ubiquity DAO",
