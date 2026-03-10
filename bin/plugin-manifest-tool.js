@@ -12,7 +12,6 @@ const MANIFEST_EXPORT_KEYS = ["pluginSettingsSchema", "commandSchema"];
 const DENO_OUTPUT_PREFIX = "__CODEX_MANIFEST_EXPORTS__";
 const ENTRYPOINT_FNS = ["createPlugin", "createActionsPlugin"];
 const DENO_BIN_OVERRIDE_ENV = "PLUGIN_MANIFEST_DENO_BIN";
-let canonicalWebhookEventsPromise = null;
 
 /**
  * Resolves how to invoke Deno for runtime module loading.
@@ -109,44 +108,6 @@ async function findFilesByExtension(rootDir, extension) {
  */
 function warning(message) {
   console.log(`::warning::${message}`);
-}
-
-/**
- * Loads canonical webhook event names from @octokit/webhooks.
- * Falls back to null when the dependency is unavailable.
- *
- * @returns {Promise<Set<string>|null>}
- */
-async function loadCanonicalWebhookEvents() {
-  if (canonicalWebhookEventsPromise) {
-    return canonicalWebhookEventsPromise;
-  }
-
-  canonicalWebhookEventsPromise = (async () => {
-    try {
-      const octokitWebhooks = await import("@octokit/webhooks");
-      const events = octokitWebhooks?.emitterEventNames;
-      if (!Array.isArray(events)) {
-        warning('manifest["ubiquity:listeners"]: @octokit/webhooks did not expose emitterEventNames. Falling back to basic listener validation.');
-        return null;
-      }
-
-      const normalized = events.filter((eventName) => typeof eventName === "string" && eventName.trim());
-      if (normalized.length === 0) {
-        warning('manifest["ubiquity:listeners"]: canonical webhook event list is empty. Falling back to basic listener validation.');
-        return null;
-      }
-
-      return new Set(normalized);
-    } catch (error) {
-      warning(
-        `manifest["ubiquity:listeners"]: could not load canonical webhook events (${error.message || String(error)}). Falling back to basic listener validation.`
-      );
-      return null;
-    }
-  })();
-
-  return canonicalWebhookEventsPromise;
 }
 
 /**
@@ -445,38 +406,20 @@ function convertTypeBoxCommandSchema(commandSchema, existingCommands = {}) {
  * Validates that listeners is a well-formed listeners array.
  *
  * @param {unknown} listeners
- * @param {{ knownWebhookEvents?: Set<string> | string[] | null }} [options]
- * @returns {{ error: string | null, unknownEvents: string[] }}
+ * @returns {string | null}
  */
-function validateListeners(listeners, options = {}) {
+function validateListeners(listeners) {
   if (!Array.isArray(listeners)) {
-    return { error: "listeners must be an array of webhook event strings", unknownEvents: [] };
+    return "listeners must be an array of webhook event strings";
   }
 
   for (const listener of listeners) {
     if (typeof listener !== "string" || !listener.trim()) {
-      return { error: `Listener "${listener}" must be a non-empty string`, unknownEvents: [] };
+      return `Listener "${listener}" must be a non-empty string`;
     }
   }
 
-  const knownWebhookEventsInput = options.knownWebhookEvents;
-  if (!knownWebhookEventsInput) {
-    return { error: null, unknownEvents: [] };
-  }
-
-  const knownWebhookEvents = knownWebhookEventsInput instanceof Set ? knownWebhookEventsInput : new Set(knownWebhookEventsInput);
-  if (knownWebhookEvents.size === 0) {
-    return { error: null, unknownEvents: [] };
-  }
-
-  const unknownEvents = [];
-  for (const listener of listeners) {
-    if (!knownWebhookEvents.has(listener)) {
-      unknownEvents.push(listener);
-    }
-  }
-
-  return { error: null, unknownEvents: [...new Set(unknownEvents)] };
+  return null;
 }
 
 /**
@@ -510,7 +453,6 @@ function orderManifestFields(manifest) {
  * @param {string[]|null} [options.supportedEvents]
  * @param {boolean|string} [options.skipBotEvents]
  * @param {boolean} [options.allowMissingCommandSchema]
- * @param {Set<string>|string[]|null} [options.knownWebhookEvents]
  * @returns {{ manifest: object, warnings: string[] }}
  */
 function buildManifest(existingManifest, pluginModule, packageJson, repoInfo, options = {}) {
@@ -554,18 +496,12 @@ function buildManifest(existingManifest, pluginModule, packageJson, repoInfo, op
 
   const supportedEvents = options.supportedEvents;
   if (supportedEvents !== undefined && supportedEvents !== null) {
-    const listenerValidation = validateListeners(supportedEvents, { knownWebhookEvents: options.knownWebhookEvents });
-    if (listenerValidation.error) {
-      warnings.push(`manifest["ubiquity:listeners"]: supported events found but invalid: ${listenerValidation.error}. Skipping.`);
+    const validationError = validateListeners(supportedEvents);
+    if (validationError) {
+      warnings.push(`manifest["ubiquity:listeners"]: supported events found but invalid: ${validationError}. Skipping.`);
     } else {
       manifest["ubiquity:listeners"] = supportedEvents;
-      if (listenerValidation.unknownEvents.length > 0) {
-        warnings.push(
-          `manifest["ubiquity:listeners"]: supported events include unknown webhook event(s): ${listenerValidation.unknownEvents.join(", ")}. Preserving values.`
-        );
-      } else {
-        console.log('manifest["ubiquity:listeners"]: derived from entrypoint generic type.');
-      }
+      console.log('manifest["ubiquity:listeners"]: derived from entrypoint generic type.');
     }
   } else {
     warnings.push('manifest["ubiquity:listeners"]: no supported events could be derived from entrypoint metadata. Field will not be auto-generated.');
@@ -1860,7 +1796,6 @@ function resolveConfig(options = {}) {
  */
 async function main() {
   const config = resolveConfig();
-  const knownWebhookEvents = await loadCanonicalWebhookEvents();
 
   let metadata;
   try {
@@ -1912,7 +1847,6 @@ async function main() {
       supportedEvents: metadata.supportedEvents,
       skipBotEvents: config.skipBotEvents,
       allowMissingCommandSchema: metadata.allowMissingCommandSchema,
-      knownWebhookEvents,
     }
   );
 
@@ -1945,7 +1879,6 @@ module.exports = {
   detectRepositoryFromGit,
   detectRefNameFromGit,
   resolveConfig,
-  loadCanonicalWebhookEvents,
   normalizeSkipBotEvents,
   parseExcludedSupportedEvents,
   findMatchingDelimiter,
