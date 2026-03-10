@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.2](https://github.com/ubiquity-os/plugin-manifest-tool/compare/v1.2.1...v1.2.2) (2026-03-10)
+
+
+### Bug Fixes
+
+* **manifest:** remove webhook-name listener validation ([3cc88dd](https://github.com/ubiquity-os/plugin-manifest-tool/commit/3cc88dde3f49cf032d6a8e9f01958011fcf8e74e))
+
 ## [1.2.1](https://github.com/ubiquity-os/plugin-manifest-tool/compare/v1.2.0...v1.2.1) (2026-03-10)
 
 
