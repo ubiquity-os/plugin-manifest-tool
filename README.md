@@ -2,7 +2,11 @@
 
 CLI for generating `manifest.json` files for UbiquityOS plugins.
 
-It is the extracted `update-manifest` implementation used by `ubiquity-os/action-deploy-plugin`, packaged for direct use with `bun x` or local installs.
+It supports:
+
+- local development
+- GitHub Actions builds
+- Deno Deploy builds and runtime-aware environments
 
 ## Install
 
@@ -20,8 +24,9 @@ Run from your plugin repository root:
 bunx @ubiquity-os/plugin-manifest-tool@latest
 ```
 
-The command reads your plugin source and writes/updates `manifest.json` in the current directory.
-You can still pass a project path (for example `.` or `./packages/my-plugin`) when needed.
+The command reads your plugin source and writes or updates `manifest.json` in the current directory.
+You can still pass a project path such as `.` or `./packages/my-plugin` when needed.
+This keeps local mode unchanged and generates `short_name` as `local/<repo>@local`.
 
 ### package.json scripts
 
@@ -35,26 +40,81 @@ You can still pass a project path (for example `.` or `./packages/my-plugin`) wh
 }
 ```
 
-### CI / GitHub Actions
+### GitHub Actions
+
+When run without a positional project root, the tool can use:
+
+- `GITHUB_WORKSPACE`
+- `GITHUB_REPOSITORY`
+- `GITHUB_REF_NAME`
+- `GITHUB_REF`
+- `MANIFEST_PATH`
+
+Example:
 
 ```yaml
 - uses: oven-sh/setup-bun@v2
 - run: bunx @ubiquity-os/plugin-manifest-tool@latest
+  env:
+    GITHUB_WORKSPACE: ${{ github.workspace }}
+    GITHUB_REPOSITORY: ${{ github.repository }}
+    GITHUB_REF_NAME: ${{ github.ref_name }}
+    MANIFEST_PATH: ${{ github.workspace }}/manifest.json
 ```
 
 No workflow-level Deno setup is required. The package bundles a Deno runner through npm dependencies and falls back to a global `deno` binary when available.
 
-## Optional environment overrides
+### Deno Deploy builds
 
-The CLI now works out of the box with no env setup.
-When env vars are present they are still honored:
+For GitHub-linked Deno builds, run the tool without a positional argument after preparing `deno.jsonc`:
 
-- `MANIFEST_PATH` (defaults to `<projectRoot>/manifest.json`)
-- `GITHUB_WORKSPACE` (defaults to current working directory)
-- `GITHUB_REPOSITORY` (falls back to git remote `origin`, then `local/<dir>`)
-- `GITHUB_REF_NAME` / `GITHUB_REF` (falls back to current git branch, then `local`)
+```bash
+deno deploy switch --token "$PLUGIN_MANIFEST_SWITCH_TOKEN" --app "$DENO_DEPLOY_APPLICATION_SLUG"
+deno x -y @ubiquity-os/plugin-manifest-tool@latest
+```
 
-This keeps compatibility with existing `action-deploy-plugin` flows while making local usage simple.
+The tool resolves manifest identity in this order:
+
+1. explicit CLI and env overrides
+2. Deno context:
+   - `DENO_TIMELINE`
+   - `PLUGIN_MANIFEST_REPOSITORY`
+   - `PLUGIN_MANIFEST_PRODUCTION_BRANCH`
+   - `deno.json` or `deno.jsonc`
+3. GitHub Actions env
+4. git metadata
+5. local fallback
+
+`short_name` rules in Deno-aware mode:
+
+- `git-branch/<branch>` -> `<owner>/<repo>@<branch>`
+- `production` -> `<owner>/<repo>@main`
+- `preview/<revision>` -> `<owner>/<repo>@<revision>`
+
+If `DENO_TIMELINE` is unavailable during the build, the tool falls back to git metadata.
+
+## Optional overrides
+
+CLI flags when running without a positional project root:
+
+- `--project-root`
+- `--manifest-path`
+- `--repository`
+- `--ref-name`
+- `--production-branch`
+
+Environment equivalents:
+
+- `PLUGIN_MANIFEST_PROJECT_ROOT`
+- `PLUGIN_MANIFEST_PATH`
+- `PLUGIN_MANIFEST_REPOSITORY`
+- `PLUGIN_MANIFEST_REF_NAME`
+- `PLUGIN_MANIFEST_PRODUCTION_BRANCH`
+- `MANIFEST_PATH`
+- `GITHUB_WORKSPACE`
+- `GITHUB_REPOSITORY`
+- `GITHUB_REF_NAME`
+- `GITHUB_REF`
 
 ### Runtime override
 
