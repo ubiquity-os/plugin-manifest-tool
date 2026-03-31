@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.3.0](https://github.com/ubiquity-os/plugin-manifest-tool/compare/v1.2.2...v1.3.0) (2026-03-31)
+
+
+### Features
+
+* add Deno deploy manifest awareness ([b29a661](https://github.com/ubiquity-os/plugin-manifest-tool/commit/b29a6616bf78b18c3e634aaafe218e020aab499e))
+* detect Deno deploy manifest context ([adc064e](https://github.com/ubiquity-os/plugin-manifest-tool/commit/adc064e81e579010961b3aa2038ba64bf8e54b90))
+
+
+### Bug Fixes
+
+* tighten Deno config resolution ([27cdeae](https://github.com/ubiquity-os/plugin-manifest-tool/commit/27cdeae50265ef81135e25e6974ec4ecb0840115))
+* use deno deploy metadata for repository ([fa258bd](https://github.com/ubiquity-os/plugin-manifest-tool/commit/fa258bd35c3e23b2c596c4b6baa8f34324c945a2))
+
 ## [1.2.2](https://github.com/ubiquity-os/plugin-manifest-tool/compare/v1.2.1...v1.2.2) (2026-03-10)
 
 
