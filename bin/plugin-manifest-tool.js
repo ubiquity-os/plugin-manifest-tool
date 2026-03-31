@@ -1692,14 +1692,7 @@ async function resolveGitRefName(projectRoot) {
     return symbolic.split(/\r?\n/)[0].trim();
   }
 
-  const refs = await runGitCommand(projectRoot, [
-    "for-each-ref",
-    "--format=%(refname:short)",
-    "--points-at",
-    "HEAD",
-    "refs/heads",
-    "refs/remotes/origin",
-  ]);
+  const refs = await runGitCommand(projectRoot, ["for-each-ref", "--format=%(refname:short)", "--points-at", "HEAD", "refs/heads", "refs/remotes/origin"]);
   const candidates = refs
     .split(/\r?\n/)
     .map((value) => value.trim())
