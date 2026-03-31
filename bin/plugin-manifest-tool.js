@@ -1748,10 +1748,14 @@ async function resolveConfig() {
     !process.env.PLUGIN_MANIFEST_REF_NAME &&
     !process.env.GITHUB_REF_NAME &&
     !process.env.DENO_TIMELINE;
-  const fallbackRoot = explicitProjectRoot || process.env.PLUGIN_MANIFEST_PROJECT_ROOT || process.env.GITHUB_WORKSPACE || localProjectRoot || process.cwd();
+  const fallbackRoot = usesLegacyLocalMode
+    ? localProjectRoot
+    : explicitProjectRoot || process.env.PLUGIN_MANIFEST_PROJECT_ROOT || process.env.GITHUB_WORKSPACE || localProjectRoot || process.cwd();
   const projectRoot = path.resolve(fallbackRoot);
   const productionBranch = explicitProductionBranch || process.env.PLUGIN_MANIFEST_PRODUCTION_BRANCH || "main";
-  const manifestPath = path.resolve(projectRoot, explicitManifestPath || process.env.PLUGIN_MANIFEST_PATH || process.env.MANIFEST_PATH || "manifest.json");
+  const manifestPath = usesLegacyLocalMode
+    ? path.resolve(projectRoot, explicitManifestPath || "manifest.json")
+    : path.resolve(projectRoot, explicitManifestPath || process.env.PLUGIN_MANIFEST_PATH || process.env.MANIFEST_PATH || "manifest.json");
   const denoDeploy = readDenoDeployConfig(projectRoot);
   const repository =
     explicitRepository ||
@@ -1762,8 +1766,8 @@ async function resolveConfig() {
   const refName =
     explicitRefName ||
     process.env.PLUGIN_MANIFEST_REF_NAME ||
-    process.env.GITHUB_REF_NAME ||
     (!usesLegacyLocalMode ? parseDenoTimelineRefName(process.env.DENO_TIMELINE, productionBranch) : "") ||
+    process.env.GITHUB_REF_NAME ||
     (!usesLegacyLocalMode ? await resolveGitRefName(projectRoot) : "") ||
     "local";
 

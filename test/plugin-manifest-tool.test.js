@@ -42,6 +42,20 @@ const REPO_INFO = {
 
 let tmpRoot;
 let projectCounter = 0;
+const RESOLVER_ENV_KEYS = [
+  "GITHUB_WORKSPACE",
+  "GITHUB_REPOSITORY",
+  "GITHUB_REF_NAME",
+  "MANIFEST_PATH",
+  "PLUGIN_MANIFEST_PROJECT_ROOT",
+  "PLUGIN_MANIFEST_PATH",
+  "PLUGIN_MANIFEST_REPOSITORY",
+  "PLUGIN_MANIFEST_REF_NAME",
+  "PLUGIN_MANIFEST_PRODUCTION_BRANCH",
+  "DENO_TIMELINE",
+  "SKIP_BOT_EVENTS",
+  "EXCLUDE_SUPPORTED_EVENTS",
+];
 
 before(() => {
   tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "update-manifest-tests-"));
@@ -74,7 +88,7 @@ function runGit(projectRoot, args) {
 
 async function withTemporaryEnv(overrides, callback) {
   const previous = new Map();
-  for (const key of Object.keys(overrides)) {
+  for (const key of new Set([...RESOLVER_ENV_KEYS, ...Object.keys(overrides)])) {
     previous.set(key, process.env[key]);
     const value = overrides[key];
     if (value === undefined || value === null) {
@@ -846,12 +860,15 @@ describe("configuration resolution", () => {
           GITHUB_REF_NAME: undefined,
           MANIFEST_PATH: undefined,
           PLUGIN_MANIFEST_PROJECT_ROOT: undefined,
+          PLUGIN_MANIFEST_PATH: undefined,
           PLUGIN_MANIFEST_REPOSITORY: undefined,
           PLUGIN_MANIFEST_REF_NAME: undefined,
           DENO_TIMELINE: undefined,
         },
         async () => {
           const config = await resolveConfig();
+          assert.equal(config.projectRoot, projectRoot);
+          assert.equal(config.manifestPath, path.join(projectRoot, "manifest.json"));
           assert.equal(config.repository, `local/${path.basename(projectRoot)}`);
           assert.equal(config.refName, "local");
         }
@@ -940,6 +957,30 @@ describe("configuration resolution", () => {
           org: "ubiquity-os",
           app: "command-start-stop",
         });
+      }
+    );
+  });
+
+  it("prefers Deno timeline over GitHub branch when both are present", async () => {
+    const projectRoot = createProject("resolve-deno-over-github");
+    writeProjectFile(projectRoot, "package.json", `{"name":"test-plugin"}`);
+
+    await withTemporaryEnv(
+      {
+        GITHUB_WORKSPACE: projectRoot,
+        GITHUB_REPOSITORY: "ubiquity-os/test-plugin",
+        GITHUB_REF_NAME: "development",
+        MANIFEST_PATH: path.join(projectRoot, "manifest.json"),
+        PLUGIN_MANIFEST_PROJECT_ROOT: undefined,
+        PLUGIN_MANIFEST_PATH: undefined,
+        PLUGIN_MANIFEST_REPOSITORY: undefined,
+        PLUGIN_MANIFEST_REF_NAME: undefined,
+        PLUGIN_MANIFEST_PRODUCTION_BRANCH: "main",
+        DENO_TIMELINE: "production",
+      },
+      async () => {
+        const config = await resolveConfig();
+        assert.equal(config.refName, "main");
       }
     );
   });
