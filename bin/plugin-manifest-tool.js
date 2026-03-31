@@ -1525,34 +1525,264 @@ async function formatManifestWithPrettier(manifestPath, cwd) {
 }
 
 /**
- * Resolves configuration from environment variables (CI mode) or CLI arguments (local mode).
+ * Parses CLI flags while preserving the original positional project-root mode.
  */
-function resolveConfig() {
-  const localProjectRoot = process.argv[2];
+function parseCliArgs(argv = process.argv.slice(2)) {
+  const args = { _: [] };
 
-  if (localProjectRoot) {
-    const projectRoot = path.resolve(localProjectRoot);
+  for (let index = 0; index < argv.length; index += 1) {
+    const token = argv[index];
+    if (!token.startsWith("--")) {
+      args._.push(token);
+      continue;
+    }
+
+    const stripped = token.slice(2);
+    const equalsIndex = stripped.indexOf("=");
+    if (equalsIndex !== -1) {
+      args[stripped.slice(0, equalsIndex)] = stripped.slice(equalsIndex + 1);
+      continue;
+    }
+
+    const next = argv[index + 1];
+    if (next !== undefined && !next.startsWith("--")) {
+      args[stripped] = next;
+      index += 1;
+      continue;
+    }
+
+    args[stripped] = true;
+  }
+
+  return args;
+}
+
+function stripJsonComments(input) {
+  let output = "";
+  let quote = null;
+
+  for (let index = 0; index < input.length; index += 1) {
+    const char = input[index];
+    const next = input[index + 1];
+
+    if (quote) {
+      output += char;
+      if (char === "\\") {
+        if (next !== undefined) {
+          output += next;
+          index += 1;
+        }
+        continue;
+      }
+      if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+
+    if (char === '"' || char === "'") {
+      quote = char;
+      output += char;
+      continue;
+    }
+
+    if (char === "/" && next === "/") {
+      while (index < input.length && input[index] !== "\n") {
+        index += 1;
+      }
+      if (index < input.length) {
+        output += "\n";
+      }
+      continue;
+    }
+
+    if (char === "/" && next === "*") {
+      index += 2;
+      while (index < input.length - 1 && !(input[index] === "*" && input[index + 1] === "/")) {
+        index += 1;
+      }
+      index += 1;
+      continue;
+    }
+
+    output += char;
+  }
+
+  return output;
+}
+
+function parseJsonc(input) {
+  return JSON.parse(stripJsonComments(input).replace(/,\s*([}\]])/g, "$1"));
+}
+
+function parseGitRemoteRepository(remoteUrl) {
+  if (typeof remoteUrl !== "string" || !remoteUrl.trim()) {
+    return null;
+  }
+
+  const normalized = remoteUrl.trim().replace(/\.git$/i, "");
+  const sshMatch = normalized.match(/^[^@]+@github\.com:(.+?)\/(.+)$/i);
+  if (sshMatch) {
+    return `${sshMatch[1]}/${sshMatch[2]}`;
+  }
+
+  try {
+    const parsed = new URL(normalized);
+    if (parsed.hostname.toLowerCase() !== "github.com") {
+      return null;
+    }
+
+    const parts = parsed.pathname.replace(/^\/+/, "").split("/").filter(Boolean);
+    if (parts.length < 2) {
+      return null;
+    }
+
+    return `${parts[0]}/${parts[1]}`;
+  } catch {
+    return null;
+  }
+}
+
+async function runGitCommand(projectRoot, args) {
+  try {
+    const { stdout } = await execFileAsync("git", ["-C", projectRoot, ...args], {
+      maxBuffer: 10 * 1024 * 1024,
+      timeout: 30_000,
+    });
+    return String(stdout || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+async function resolveGitRepository(projectRoot) {
+  const remoteUrl = await runGitCommand(projectRoot, ["remote", "get-url", "origin"]);
+  return parseGitRemoteRepository(remoteUrl);
+}
+
+function parseDenoTimelineRefName(timeline, productionBranch = "main") {
+  const value = String(timeline || "").trim();
+  if (!value) {
+    return "";
+  }
+
+  if (value === "production") {
+    return productionBranch;
+  }
+
+  if (value.startsWith("git-branch/")) {
+    return value.slice("git-branch/".length);
+  }
+
+  if (value.startsWith("preview/")) {
+    return value.slice("preview/".length);
+  }
+
+  return "";
+}
+
+async function resolveGitRefName(projectRoot) {
+  const direct = await runGitCommand(projectRoot, ["branch", "--show-current"]);
+  if (direct) {
+    return direct.split(/\r?\n/)[0].trim();
+  }
+
+  const symbolic = await runGitCommand(projectRoot, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+  if (symbolic) {
+    return symbolic.split(/\r?\n/)[0].trim();
+  }
+
+  const refs = await runGitCommand(projectRoot, ["for-each-ref", "--format=%(refname:short)", "--points-at", "HEAD", "refs/heads", "refs/remotes/origin"]);
+  const candidates = refs
+    .split(/\r?\n/)
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .map((value) => value.replace(/^origin\//, ""))
+    .filter((value) => value !== "HEAD");
+
+  return candidates[0] || "";
+}
+
+function readDenoDeployConfig(projectRoot) {
+  for (const fileName of ["deno.jsonc", "deno.json"]) {
+    const filePath = path.join(projectRoot, fileName);
+    if (!fsSync.existsSync(filePath)) {
+      continue;
+    }
+
+    try {
+      const parsed = parseJsonc(fsSync.readFileSync(filePath, "utf8"));
+      if (parsed?.deploy && typeof parsed.deploy === "object") {
+        return {
+          path: filePath,
+          org: typeof parsed.deploy.org === "string" ? parsed.deploy.org : null,
+          app: typeof parsed.deploy.app === "string" ? parsed.deploy.app : null,
+        };
+      }
+    } catch {
+      // Ignore malformed local config and continue with other sources.
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Resolves configuration from CLI arguments, environment variables, Deno context, git metadata, or local fallbacks.
+ */
+async function resolveConfig() {
+  const args = parseCliArgs();
+  const localProjectRoot = args._[0];
+  const explicitProjectRoot = typeof args["project-root"] === "string" ? args["project-root"] : "";
+  const explicitManifestPath = typeof args["manifest-path"] === "string" ? args["manifest-path"] : "";
+  const explicitRepository = typeof args.repository === "string" ? args.repository : "";
+  const explicitRefName = typeof args["ref-name"] === "string" ? args["ref-name"] : "";
+  const explicitProductionBranch = typeof args["production-branch"] === "string" ? args["production-branch"] : "";
+  const usesLegacyLocalMode =
+    !!localProjectRoot &&
+    !explicitProjectRoot &&
+    !explicitRepository &&
+    !process.env.PLUGIN_MANIFEST_REPOSITORY &&
+    !process.env.GITHUB_REPOSITORY &&
+    !explicitRefName &&
+    !process.env.PLUGIN_MANIFEST_REF_NAME &&
+    !process.env.GITHUB_REF_NAME &&
+    !process.env.DENO_TIMELINE;
+  const fallbackRoot = usesLegacyLocalMode
+    ? localProjectRoot
+    : explicitProjectRoot || process.env.PLUGIN_MANIFEST_PROJECT_ROOT || process.env.GITHUB_WORKSPACE || localProjectRoot || process.cwd();
+  const projectRoot = path.resolve(fallbackRoot);
+  const productionBranch = explicitProductionBranch || process.env.PLUGIN_MANIFEST_PRODUCTION_BRANCH || "main";
+  const manifestPath = usesLegacyLocalMode
+    ? path.resolve(projectRoot, explicitManifestPath || "manifest.json")
+    : path.resolve(projectRoot, explicitManifestPath || process.env.PLUGIN_MANIFEST_PATH || process.env.MANIFEST_PATH || "manifest.json");
+  const denoDeploy = readDenoDeployConfig(projectRoot);
+  const repository =
+    explicitRepository ||
+    process.env.PLUGIN_MANIFEST_REPOSITORY ||
+    process.env.GITHUB_REPOSITORY ||
+    (!usesLegacyLocalMode && denoDeploy?.org && denoDeploy?.app ? `${denoDeploy.org}/${denoDeploy.app}` : "") ||
+    (!usesLegacyLocalMode ? await resolveGitRepository(projectRoot) : "") ||
+    `local/${path.basename(projectRoot)}`;
+  const refName =
+    explicitRefName ||
+    process.env.PLUGIN_MANIFEST_REF_NAME ||
+    (!usesLegacyLocalMode ? parseDenoTimelineRefName(process.env.DENO_TIMELINE, productionBranch) : "") ||
+    process.env.GITHUB_REF_NAME ||
+    (!usesLegacyLocalMode ? await resolveGitRefName(projectRoot) : "") ||
+    "local";
+
+  if (usesLegacyLocalMode) {
     return {
-      manifestPath: path.join(projectRoot, "manifest.json"),
+      manifestPath,
       projectRoot,
       repository: `local/${path.basename(projectRoot)}`,
       refName: "local",
       skipBotEvents: process.env.SKIP_BOT_EVENTS ?? "true",
       excludeSupportedEvents: process.env.EXCLUDE_SUPPORTED_EVENTS ?? "",
+      productionBranch,
+      denoDeploy,
     };
-  }
-
-  const manifestPath = process.env.MANIFEST_PATH;
-  const projectRoot = process.env.GITHUB_WORKSPACE;
-  const repository = process.env.GITHUB_REPOSITORY;
-  const refName = process.env.GITHUB_REF_NAME;
-  const skipBotEvents = process.env.SKIP_BOT_EVENTS ?? "true";
-  const excludeSupportedEvents = process.env.EXCLUDE_SUPPORTED_EVENTS ?? "";
-
-  if (!manifestPath || !projectRoot || !repository || !refName) {
-    console.error("Missing required environment variables (MANIFEST_PATH, GITHUB_WORKSPACE, GITHUB_REPOSITORY, GITHUB_REF_NAME)");
-    console.error("\nFor local testing, pass the project root as an argument:\n  node update-manifest.js /path/to/plugin-project");
-    process.exit(1);
   }
 
   return {
@@ -1560,8 +1790,10 @@ function resolveConfig() {
     projectRoot,
     repository,
     refName,
-    skipBotEvents,
-    excludeSupportedEvents,
+    skipBotEvents: process.env.SKIP_BOT_EVENTS ?? "true",
+    excludeSupportedEvents: process.env.EXCLUDE_SUPPORTED_EVENTS ?? "",
+    productionBranch,
+    denoDeploy,
   };
 }
 
@@ -1569,7 +1801,7 @@ function resolveConfig() {
  * Main entrypoint — reads files, builds manifest, writes output.
  */
 async function main() {
-  const config = resolveConfig();
+  const config = await resolveConfig();
 
   let metadata;
   try {
@@ -1662,6 +1894,12 @@ module.exports = {
   resolveRuntimeReferenceFromIdentifier,
   loadPluginModule,
   extractManifestMetadataFromEntrypoint,
+  parseCliArgs,
+  parseGitRemoteRepository,
+  parseDenoTimelineRefName,
+  resolveGitRefName,
+  readDenoDeployConfig,
+  resolveConfig,
 };
 
 if (require.main === module) {
