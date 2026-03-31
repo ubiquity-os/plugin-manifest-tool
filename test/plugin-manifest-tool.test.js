@@ -961,6 +961,41 @@ describe("configuration resolution", () => {
     );
   });
 
+  it("falls back to deno deploy metadata for repository identity", async () => {
+    const projectRoot = createProject("resolve-deno-repository");
+    writeProjectFile(
+      projectRoot,
+      "deno.jsonc",
+      `{
+  "deploy": {
+    "org": "ubiquity-os",
+    "app": "command-start-stop"
+  }
+}
+`
+    );
+
+    await withTemporaryEnv(
+      {
+        GITHUB_WORKSPACE: undefined,
+        GITHUB_REPOSITORY: undefined,
+        GITHUB_REF_NAME: undefined,
+        MANIFEST_PATH: undefined,
+        PLUGIN_MANIFEST_PROJECT_ROOT: projectRoot,
+        PLUGIN_MANIFEST_PATH: undefined,
+        PLUGIN_MANIFEST_REPOSITORY: undefined,
+        PLUGIN_MANIFEST_REF_NAME: undefined,
+        PLUGIN_MANIFEST_PRODUCTION_BRANCH: "main",
+        DENO_TIMELINE: "production",
+      },
+      async () => {
+        const config = await resolveConfig();
+        assert.equal(config.repository, "ubiquity-os/command-start-stop");
+        assert.equal(config.refName, "main");
+      }
+    );
+  });
+
   it("prefers Deno timeline over GitHub branch when both are present", async () => {
     const projectRoot = createProject("resolve-deno-over-github");
     writeProjectFile(projectRoot, "package.json", `{"name":"test-plugin"}`);

@@ -1761,6 +1761,7 @@ async function resolveConfig() {
     explicitRepository ||
     process.env.PLUGIN_MANIFEST_REPOSITORY ||
     process.env.GITHUB_REPOSITORY ||
+    (!usesLegacyLocalMode && denoDeploy?.org && denoDeploy?.app ? `${denoDeploy.org}/${denoDeploy.app}` : "") ||
     (!usesLegacyLocalMode ? await resolveGitRepository(projectRoot) : "") ||
     `local/${path.basename(projectRoot)}`;
   const refName =
